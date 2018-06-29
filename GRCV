@@ -1,0 +1,232 @@
+##
+### GRCV Estimator of Dispersion parameter
+##
+GRCV <- function(X,y,family=c("Gamma","inverse.gaussian","binomial"),link=c("inverse","1/mu^2","log","identity","logit","probit","cloglog"),ordering=c("AIC","BIC","CV"),n.repeat=5, trace = FALSE,set_seed=NULL,control=list()) {
+  family <- match.arg(family)
+  if (family=="Gamma") fam <- Gamma
+  if (family=="inverse.gaussian") fam <- inverse.gaussian
+  if (family=="binomial") fam <- binomial
+  link <- match.arg(link)
+  ordering <- match.arg(ordering)
+  if (is.data.frame(X)) X <- as.matrix(X)
+  n <- dim(X)[1]
+  p <- dim(X)[2]
+  control2<-control
+  if (!is.null(control$nfold)) {
+    if (control$nfold<1 | control$nfold>floor(n/2)) stop("'nfold' should be an integer between 1 and 'floor(n/2)'!.")
+    control["nfold"]<-NULL
+  } else {
+    if (floor(n/2)<10) stop("Default for 'nfold' is 10. 'nfold' should be an integer between 1 and 'floor(n/2)'.")
+  }
+  if (all(as.numeric(X[,1])==rep(1,n))) warning("Look at 'X'; It should not be with 'Intercept' !")
+  control_g0 <- control$g0
+  g0_0 <- 0.00001
+  phi_h <- weighted <- c()
+  i<-0
+  repeat {
+    i<-i+1
+    control$g0 <- control_g0
+    if(trace) cat(paste("Repeat: ",i,"\n"))
+    if (!is.null(set_seed)) set.seed(set_seed+i-1)
+    foldid <- sample(rep(1:2, length = n)) # It means that we have the number 1 more than 2.
+    sub_a <- foldid == 1
+    if (ceiling(n/2)!=floor(n/2)) {sub_a1 <- sub_a; sub_a1[which(sub_a1)[1]] <- FALSE; sub_b <- !sub_a1}
+    else sub_b <- !sub_a
+    Xa <- X[sub_a, , drop=FALSE]
+    ya <- y[sub_a]
+    Xb <- X[sub_b, , drop=FALSE]
+    yb <- y[sub_b]
+    ## step 1
+    if (trace) cat(paste("Step 1","\n"))
+    if (ordering=="AIC") {
+      out_dglars_2 <- dglars2.fit(Xa,ya,family,link,control=control)
+      # by AIC:
+      A <- (which(rownames(out_dglars_2$beta)%in%predictors(out_dglars_2,"AIC"))-1)[-1]
+      if (length(A)) {
+        out_glm <- glm(yb ~ Xb[, A, drop=FALSE], family=fam(link=link))
+      } else out_glm <- glm(yb ~ 1, family=fam(link=link))
+      if (!out_glm$converged) {
+        control$g0 <- g0_0
+        if (length(A)) {
+          out_dglars_2_mle <- dglars2.fit(Xb[, A, drop=FALSE],yb,family,link,control=control)
+          if (out_dglars_2_mle$conv==0) out_dglars_2_mle_conv<-0
+          else out_dglars_2_mle_conv<-2
+        } else {
+          out_dglars_2_mle_conv<-2
+        }
+        if (length(A) & out_dglars_2_mle_conv==0) {
+          out_glm$coef <- coef.dglars2(out_dglars_2_mle,"allpath")[,out_dglars_2_mle$np]
+          out_glm$converged <- TRUE
+        } else {
+          out_glm$converged <- FALSE
+          warning("Try 'BIC' or 'CV' !")
+        }
+      }
+    }
+    if (ordering=="BIC") {
+      out_dglars_2 <- dglars2.fit(Xa,ya,family,link,control=control)
+      # by BIC:
+      A <- (which(rownames(out_dglars_2$beta)%in%predictors(out_dglars_2,"BIC"))-1)[-1]
+      if (length(A)) {
+        out_glm <- glm(yb ~ Xb[, A, drop=FALSE], family=fam(link=link))
+      } else out_glm <- glm(yb ~ 1, family=fam(link=link))
+      if (!out_glm$converged) {
+        control$g0 <- g0_0
+        if (length(A)) {
+          out_dglars_2_mle <- dglars2.fit(Xb[, A, drop=FALSE],yb,family,link,control=control)
+          if (out_dglars_2_mle$conv==0) out_dglars_2_mle_conv<-0
+          else out_dglars_2_mle_conv<-2
+        } else {
+          out_dglars_2_mle_conv<-2
+        }
+        if (length(A) & out_dglars_2_mle_conv==0) {
+          out_glm$coef <- coef.dglars2(out_dglars_2_mle,"allpath")[,out_dglars_2_mle$np]
+          out_glm$converged <- TRUE
+        } else {
+          out_glm$converged <- FALSE
+          warning("Try 'AIC' or 'CV' !")
+        }
+      }
+    }
+    if (ordering=="CV") {
+      out_cvdglars_2 <- try(cvdglars2.fit(Xa,ya,family,link,control=control2),TRUE)
+      # by CV:
+      if (attr(out_cvdglars_2,"class")=="try-error") out_cvdglars_2 <- try(cvdglars2.fit(Xa,ya,family,link,control=control2),TRUE)
+      if (attr(out_cvdglars_2,"class")=="try-error") {
+        out_glm$converged <- FALSE
+      } else {
+        A <- (which(names(out_cvdglars_2$beta)%in%names(out_cvdglars_2$beta[abs(out_cvdglars_2$beta)>0]))-1)[-1]
+        if (length(A)) {
+          out_glm <- glm(yb ~ Xb[, A, drop=FALSE], family=fam(link=link))
+        } else out_glm <- glm(yb ~ 1, family=fam(link=link))
+        if (!out_glm$converged) {
+          control$g0 <- g0_0
+          if (length(A)) {
+            out_dglars_2_mle <- dglars2.fit(Xb[, A, drop=FALSE],yb,family,link,control=control)
+            if (out_dglars_2_mle$conv==0) out_dglars_2_mle_conv<-0
+            else out_dglars_2_mle_conv<-2
+          } else {
+            out_dglars_2_mle_conv<-2
+          }
+          if (length(A) & out_dglars_2_mle_conv==0) {
+            out_glm$coef <- coef.dglars2(out_dglars_2_mle,"allpath")[,out_dglars_2_mle$np]
+            out_glm$converged <- TRUE
+          } else {
+            out_glm$converged <- FALSE
+            warning("Try 'AIC' or 'BIC' !")
+          }
+        }
+      }
+    }
+    if (out_glm$converged) {
+      if (link=="inverse" | link=="1/mu^2") out_glm$coef <- -out_glm$coef
+      m_eta <- drop(tcrossprod(cbind(1,Xb[, A]),t(out_glm$coef)))
+      m_mu <- linkinv(m_eta,family,link)  # fam(link)$linkinv(m_eta) == fitted.values(out_glm)
+      resid_pearson <- (yb-m_mu)/sqrt(varf(m_mu,family)) #  == residuals(out_glm, type="pearson")
+      phih_a <- drop(crossprod(resid_pearson))/(sum(sub_b)-length(A)-1) # df.residual(out_glm)==sum(sub_b)-length(A)-1
+      if ((sum(sub_b)-length(A)-1)==0) phih_a <- NA
+    } else phih_a <- NA
+    if (trace) cat(paste("phi.hat.1 : ",phih_a,"\n\n"))
+    ## step 2
+    if (trace) cat(paste("Step 2","\n"))
+    if (ordering=="AIC") {
+      out2_dglars_2 <- dglars2.fit(Xb,yb,family,link,control=control)
+      # by AIC:
+      A2 <- (which(rownames(out2_dglars_2$beta)%in%predictors(out2_dglars_2,"AIC"))-1)[-1]
+      if (length(A2)) {
+        out2_glm <- glm(ya ~ Xa[, A2, drop=FALSE], family=fam(link=link))
+      } else out2_glm <- glm(ya ~ 1, family=fam(link=link))
+      if (!out2_glm$converged) {
+        control$g0 <- g0_0
+        if (length(A2)) {
+          out2_dglars_2_mle <- dglars2.fit(Xa[, A2, drop=FALSE],ya,family,link,control=control)
+          if (out2_dglars_2_mle$conv==0) out2_dglars_2_mle_conv<-0
+          else out2_dglars_2_mle_conv<-2
+        } else {
+          out2_dglars_2_mle_conv<-2
+        }
+        if (length(A2) & out2_dglars_2_mle_conv==0) {
+          out2_glm$coef <- coef.dglars2(out2_dglars_2_mle,"allpath")[,out2_dglars_2_mle$np]
+          out2_glm$converged <- TRUE
+        } else {
+          out2_glm$converged <- FALSE
+          warning("Try 'BIC' or 'CV' !")
+        }
+      }
+    }
+    if (ordering=="BIC") {
+      out2_dglars_2 <- dglars2.fit(Xb,yb,family,link,control=control)
+      # by BIC:
+      A2 <- (which(rownames(out2_dglars_2$beta)%in%predictors(out2_dglars_2,"BIC"))-1)[-1]
+      if (length(A2)) {
+        out2_glm <- glm(ya ~ Xa[, A2, drop=FALSE], family=fam(link=link))
+      } else out2_glm <- glm(ya ~ 1, family=fam(link=link))
+      if (!out2_glm$converged) {
+        control$g0 <- g0_0
+        if (length(A2)) {
+          out2_dglars_2_mle <- dglars2.fit(Xa[, A2, drop=FALSE],ya,family,link,control=control)
+          if (out2_dglars_2_mle$conv==0) out2_dglars_2_mle_conv<-0
+          else out2_dglars_2_mle_conv<-2
+        } else {
+          out2_dglars_2_mle_conv<-2
+        }
+        if (length(A2) & out2_dglars_2_mle_conv==0) {
+          out2_glm$coef <- coef.dglars2(out2_dglars_2_mle,"allpath")[,out2_dglars_2_mle$np]
+          out2_glm$converged <- TRUE
+        } else {
+          out2_glm$converged <- FALSE
+          warning("Try 'AIC' or 'CV' !")
+        }
+      }
+    }
+    if (ordering=="CV") {
+      out2_cvdglars_2 <- try(cvdglars2.fit(Xb,yb,family,link,control=control2),TRUE)
+      # by CV:
+      #if (attr(out2_cvdglars_2,"class")=="try-error") out2_cvdglars_2 <- try(cvdglars2.fit(Xb,yb,family,link,control=control2),TRUE)
+      if (attr(out2_cvdglars_2,"class")=="try-error") {
+        out2_glm$converged <- FALSE
+      } else {
+        A2<- (which(names(out2_cvdglars_2$beta)%in%names(out2_cvdglars_2$beta[abs(out2_cvdglars_2$beta)>0]))-1)[-1]
+        if (length(A2)) {
+          out2_glm <- glm(ya ~ Xa[, A2, drop=FALSE], family=fam(link=link))
+        } else out2_glm <- glm(ya ~ 1, family=fam(link=link))
+        if (!out2_glm$converged) {
+          control$g0 <- g0_0
+          if (length(A2)) {
+            out2_dglars_2_mle <- dglars2.fit(Xa[, A2, drop=FALSE],ya,family,link,control=control)
+            if (out2_dglars_2_mle$conv==0) out2_dglars_2_mle_conv<-0
+            else out2_dglars_2_mle_conv<-2
+          } else {
+            out2_dglars_2_mle_conv<-2
+          }
+          if (length(A2) & out2_dglars_2_mle_conv==0) {
+            out2_glm$coef <- coef.dglars2(out2_dglars_2_mle,"allpath")[,out2_dglars_2_mle$np]
+            out2_glm$converged <- TRUE
+          } else out2_glm$converged <- FALSE
+        }
+      }
+    }
+    if (out2_glm$converged) {
+      if (link=="inverse" | link=="1/mu^2") out2_glm$coef <- -out2_glm$coef
+      m2_eta <- drop(tcrossprod(cbind(1,Xa[, A2]),t(out2_glm$coef)))
+      m2_mu <- linkinv(m2_eta,family,link)  # fam(link)$linkinv(m2_eta) == fitted.values(out2_glm)
+      resid2_pearson <- (ya-m2_mu)/sqrt(varf(m2_mu,family)) #  == residuals(out2_glm, type="pearson")
+      phih_b <- drop(crossprod(resid2_pearson))/(sum(sub_a)-length(A2)-1) # df.residual(out2_glm)==sum(sub_a)-length(A2)-1
+      if ((sum(sub_a)-length(A2)-1)==0) phih_b <- NA
+    } else phih_b <- NA
+    if (trace) cat(paste("phi.hat.2 : ",phih_b,"\n\n"))
+    phi_h[i] <- mean(c(phih_a,phih_b),na.rm=T)
+    if (out_glm$converged & out2_glm$converged) {
+      d_n <- (n-length(A)-length(A2)-2)
+    } else {
+      if (out_glm$converged) d_n <- (sum(sub_b)-length(A)-1)
+      if (out2_glm$converged) d_n <- (sum(sub_a)-length(A2)-1)
+    }
+    weighted[i] <- sum(c(ifelse(out_glm$converged,drop(crossprod(resid_pearson)),NA),ifelse(out2_glm$converged,drop(crossprod(resid2_pearson)),NA)),na.rm=T)/(d_n)
+    if (is.na(phi_h[i])) i<-i-1
+    if (i==n.repeat) break
+  }
+  phi_last <- mean(phi_h,na.rm=T)
+  weighted_average <- mean(weighted,na.rm=T)
+  phi_hat<-list(phi_GRCV=phi_last,phi_WGRCV=weighted_average)
+}
