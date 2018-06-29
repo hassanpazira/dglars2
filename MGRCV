@@ -1,0 +1,22 @@
+##
+### MGRCV Estimator of Dispersion parameter
+##
+MGRCV <- function(X,y,family=c("Gamma","inverse.gaussian","binomial"),link=c("inverse","1/mu^2","log","identity","logit","probit","cloglog"),ordering=c("AIC","BIC","CV"),max_iter=10,n.repeat=5,trace=FALSE,set_seed=NULL,control=list()) {
+  family <- match.arg(family)
+  if (family=="binomial") stop("Since dispersion is 1 in 'binomial' family, this function only works for 'Gamma' and 'inverse.gaussian'.")
+  link <- match.arg(link)
+  ordering <- match.arg(ordering)
+  if (!is.null(control$dispersion)) control$dispersion<-NULL
+  n.rep <- 0
+  v_dispers <- c()
+  repeat {
+    n.rep <- n.rep+1
+    cat(fill=TRUE);cat(paste(n.rep), fill = TRUE, labels = paste0("{", "Number of Iterations", "}:")) #
+    if (n.rep!=1) control$dispersion<-dispers
+    phinew <- GRCV(X,y,family,link,ordering,n.repeat,trace,set_seed,control=control) 
+    dispers <- phinew[[1]]
+    v_dispers <- c(v_dispers,dispers)
+    if (n.rep==max_iter) break
+  }
+  s.phi<-list(phi=median(v_dispers),vec.phi=v_dispers)
+}
