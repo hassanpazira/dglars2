@@ -1,0 +1,17 @@
+formula.dglars2 <- function(x,k=c("BIC","AIC"),complexity=c("df","gdf"), ...){
+  if (!inherits(x,"dglars2"))
+    stop("This function only works for objects of class 'dglars2'")
+  if(is.numeric(k)){
+    if(k<=0) stop("k must be greater than zero")
+    knm <- "GoF"
+  }
+  else{
+    knm <- match.arg(k)
+    k <- ifelse(knm == "BIC",log(dim(x$X)[1]),2)
+  }
+  complexity <- match.arg(complexity)
+  mst <- make_summary_table(x,k,complexity)$b.gof
+  b.names <- names(mst)[-1]
+  if(!length(b.names)) b.names <- "1"
+  cat(paste("y",paste(b.names,collapse=" + "),sep=" ~ "))
+}
